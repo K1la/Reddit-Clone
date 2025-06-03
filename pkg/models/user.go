@@ -5,8 +5,4 @@ type (
 		Username string `json:"username"`
 		Password string `json:"password"`
 	}
-
-	UserRepo interface {
-		Create(user *User) (*User, error)
-	}
 )

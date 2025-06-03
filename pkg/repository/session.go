@@ -2,13 +2,18 @@ package repository
 
 import (
 	"errors"
-	"github.com/google/uuid"
 	"redditclone/pkg/models"
+
+	"github.com/google/uuid"
 )
 
 type (
 	InMemorySessionRepo struct {
 		sessions map[string]*models.Session
+	}
+
+	SessionRepo interface {
+		Create(userName string) (*models.Session, error)
 	}
 )
 

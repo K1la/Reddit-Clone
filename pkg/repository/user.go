@@ -11,6 +11,11 @@ type (
 		users map[string]*models.User
 		mu    sync.RWMutex
 	}
+
+	UserRepo interface {
+		Create(userName, hashPassword string) (*models.User, error)
+		GetByUsername(username string) (*models.User, error)
+	}
 )
 
 func NewInMemoryUserRepo() *InMemoryUserRepo {

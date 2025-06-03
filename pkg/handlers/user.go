@@ -2,11 +2,12 @@ package handlers
 
 import (
 	"encoding/json"
-	"go.uber.org/zap"
-	"golang.org/x/crypto/bcrypt"
 	"net/http"
 	"redditclone/pkg/auth"
 	"redditclone/pkg/repository"
+
+	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type UserHandler struct {

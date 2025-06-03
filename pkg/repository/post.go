@@ -3,11 +3,13 @@ package repository
 import (
 	"errors"
 	"fmt"
-	"github.com/google/uuid"
 	"log"
 	"redditclone/pkg/models"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type (
@@ -22,6 +24,34 @@ type (
 		Title    string `json:"title"`
 		Type     string `json:"type"`
 	}
+
+	PostRepo interface {
+		ListAll() ([]*models.Post, error)
+		Create(postReq PostRequest, session *models.Session) (*models.Post, error)
+		ListByID(id string) (*models.Post, error)
+		GetByID(id string) (*models.Post, error)
+		GetByCategory(category string) ([]*models.Post, error)
+		AddCommentToPost(body, postID string, session *models.Session) (*models.Post, error)
+		DeleteComment(commentID, postID, sessionID string) (*models.Post, error)
+		UpVote(sessionID string, post *models.Post)
+		DownVote(sessionID string, post *models.Post)
+		UnVote(sessionID string, post *models.Post)
+		DeletePost(post *models.Post)
+		GetAllPostsUser(userLogin string) ([]*models.Post, error)
+		TrimToken(token string) string
+		checkVote(postID string) bool
+		deleteVote(sessionID, postID string)
+		calcUpVotePercent(post *models.Post)
+		addComment(body string, session *models.Session) *models.Comment
+		getCommentPosition(postID, commentID string) (int, error)
+		deleteComment(postID, commentID, sessionID string) error
+	}
+)
+
+var (
+	ErrPostNotFound    = errors.New("post not found")
+	ErrPostsNotFound   = errors.New("posts not found")
+	ErrCommentNotFound = fmt.Errorf("comment not found")
 )
 
 func NewInMemoryPostRepo() *InMemoryPostRepo {
@@ -53,7 +83,7 @@ func (h *InMemoryPostRepo) Create(postReq PostRequest, session *models.Session) 
 		Category:   postReq.Category,
 		Created:    time.Now(),
 		UpVotePerc: 100,
-		ID:         uuid.NewString(),
+		ID:         uuid.New().String(),
 		Votes:      make([]*models.Vote, 0),
 		Comments:   make([]*models.Comment, 0),
 		Author:     session,
@@ -81,7 +111,7 @@ func (h *InMemoryPostRepo) ListByID(id string) (*models.Post, error) {
 func (h *InMemoryPostRepo) GetByID(id string) (*models.Post, error) {
 	post, ok := h.posts[id]
 	if !ok {
-		return nil, errors.New("post not found")
+		return nil, ErrPostNotFound
 	}
 	return post, nil
 }
@@ -98,27 +128,27 @@ func (h *InMemoryPostRepo) GetByCategory(category string) ([]*models.Post, error
 	return res, nil
 }
 
-func (h *InMemoryPostRepo) AddCommentToPost(body string, postID string) (*models.Post, error) {
+func (h *InMemoryPostRepo) AddCommentToPost(body, postID string, session *models.Session) (*models.Post, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	post, ok := h.posts[postID]
 	if !ok {
-		return nil, errors.New("post not found")
+		return nil, ErrPostNotFound
 	}
 
-	comm := h.addComment(body, post.ID)
+	comm := h.addComment(body, session)
 	post.Comments = append(post.Comments, comm)
 	return post, nil
 }
 
-func (h *InMemoryPostRepo) DeleteComment(commentID, postID string) (*models.Post, error) {
+func (h *InMemoryPostRepo) DeleteComment(commentID, postID, sessionID string) (*models.Post, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	post, ok := h.posts[postID]
 	if !ok {
-		return nil, errors.New("post not found")
+		return nil, ErrPostNotFound
 	}
-	err := h.deleteComment(post.ID, commentID)
+	err := h.deleteComment(post.ID, commentID, sessionID)
 	if err != nil {
 		return nil, err
 	}
@@ -219,15 +249,15 @@ func (h *InMemoryPostRepo) GetAllPostsUser(userLogin string) ([]*models.Post, er
 		}
 	}
 	if len(res) == 0 {
-		return nil, errors.New("posts not found")
+		return nil, ErrPostsNotFound
 	}
 	return res, nil
 }
 
-func (h *InMemoryPostRepo) addComment(body, postID string) *models.Comment {
+func (h *InMemoryPostRepo) addComment(body string, session *models.Session) *models.Comment {
 	comm := &models.Comment{
 		Created: time.Now(),
-		Author:  h.posts[postID].Author,
+		Author:  session,
 		Body:    body,
 		ID:      uuid.NewString(),
 	}
@@ -241,14 +271,21 @@ func (h *InMemoryPostRepo) getCommentPosition(postID, commentID string) (int, er
 			return i, nil
 		}
 	}
-	return -1, fmt.Errorf("comment not found")
+	return -1, ErrCommentNotFound
 }
 
-func (h *InMemoryPostRepo) deleteComment(postID, commentID string) error {
+func (h *InMemoryPostRepo) deleteComment(postID, commentID, sessionID string) error {
 	position, err := h.getCommentPosition(postID, commentID)
 	if err != nil {
 		return err
 	}
+	if h.posts[postID].Author.ID == sessionID {
+	}
 	h.posts[postID].Comments = append(h.posts[postID].Comments[:position], h.posts[postID].Comments[position+1:]...)
 	return nil
+}
+
+func (h *InMemoryPostRepo) TrimToken(token string) string {
+	retToken := strings.TrimPrefix(token, "Bearer ")
+	return retToken
 }

@@ -1,19 +1,20 @@
 package middleware
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
+
+	"go.uber.org/zap"
 )
 
-func Panic(next http.Handler) http.Handler {
+func Panic(logger *zap.SugaredLogger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/favicon.ico" && r.URL.Path != "/manifest.json" && !strings.Contains(r.URL.Path, "/static/") {
-			fmt.Println("panicMiddleware", r.URL.Path)
+			logger.Infow("panicMiddleware", r.URL.Path)
 		}
 		defer func() {
 			if err := recover(); err != nil {
-				fmt.Println("recovered", err)
+				logger.Infow("recovered", err)
 				http.Error(w, "Internal server error", 500)
 			}
 		}()

@@ -1,17 +1,17 @@
 package middleware
 
 import (
-	"fmt"
-	"go.uber.org/zap"
 	"net/http"
 	"strings"
 	"time"
+
+	"go.uber.org/zap"
 )
 
 func AccessLog(logger *zap.SugaredLogger, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/favicon.ico" && r.URL.Path != "/manifest.json" && !strings.Contains(r.URL.Path, "/static/") {
-			fmt.Println("access log middleware")
+			logger.Infow("access log middleware")
 			start := time.Now()
 			logger.Infow("New request",
 				"method", r.Method,

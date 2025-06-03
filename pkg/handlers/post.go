@@ -4,13 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gorilla/mux"
-	"go.uber.org/zap"
 	"log"
 	"net/http"
 	"redditclone/pkg/auth"
+	"redditclone/pkg/models"
 	"redditclone/pkg/repository"
-	"strings"
+
+	"github.com/gorilla/mux"
+	"go.uber.org/zap"
 )
 
 type commentRequest struct {
@@ -21,7 +22,7 @@ type deleteResponse struct {
 	Message string `json:"message"`
 }
 type PostHandler struct {
-	PostRepo *repository.InMemoryPostRepo
+	PostRepo repository.PostRepo
 	logger   *zap.SugaredLogger
 }
 
@@ -30,6 +31,13 @@ func NewPostHandler(logger *zap.SugaredLogger) *PostHandler {
 		PostRepo: repository.NewInMemoryPostRepo(),
 		logger:   logger,
 	}
+}
+
+func handlerWrite(w http.ResponseWriter, statusHttp int, respPost any) error {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusHttp)
+	err := json.NewEncoder(w).Encode(respPost)
+	return err
 }
 
 func (h *PostHandler) ListAllPosts(w http.ResponseWriter, r *http.Request) {
@@ -41,10 +49,10 @@ func (h *PostHandler) ListAllPosts(w http.ResponseWriter, r *http.Request) {
 	}
 	h.logger.Infow("!!!Listing posts", "posts", posts)
 
-	w.Header().Set("Content-Type", "application/json")
-
-	w.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(w).Encode(posts)
+	err = handlerWrite(w, http.StatusOK, posts)
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusOK)
+	//err = json.NewEncoder(w).Encode(posts)
 	if err != nil {
 		h.logger.Errorw("error while encoding posts", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -64,8 +72,12 @@ func (h *PostHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 
 	fmt.Printf("\n\n\t%#v\n", r.Header)
 	fmt.Printf("\t%+v\n\n", r.Header)
+	//fmt.Printf("\t%+v\n\n", r.Header.Get("Authorization"))
+	//inToken := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 
-	inToken := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	token := r.Header.Get("Authorization")
+	inToken := h.PostRepo.TrimToken(token)
+
 	session, err := auth.ParseToken(inToken)
 	if err != nil {
 		h.logger.Errorw("error while parsing token", "error", err)
@@ -81,9 +93,11 @@ func (h *PostHandler) CreatePost(w http.ResponseWriter, r *http.Request) {
 	}
 	h.logger.Infow("post created", "post", post)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	err = json.NewEncoder(w).Encode(post)
+	posts := []*models.Post{post}
+	err = handlerWrite(w, http.StatusCreated, posts)
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusCreated)
+	//err = json.NewEncoder(w).Encode(post)
 	if err != nil {
 		h.logger.Errorw("encoding new post", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -103,9 +117,11 @@ func (h *PostHandler) ListCategoryPosts(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	h.logger.Infow("got posts by category", "posts", posts)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(w).Encode(posts)
+
+	err = handlerWrite(w, http.StatusOK, posts)
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusOK)
+	//err = json.NewEncoder(w).Encode(posts)
 	if err != nil {
 		h.logger.Errorw("encoding posts category", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -123,14 +139,17 @@ func (h *PostHandler) ListPostByID(w http.ResponseWriter, r *http.Request) {
 	post, err := h.PostRepo.ListByID(postID)
 	if err != nil {
 		h.logger.Errorw("getting post by ID", "error", err)
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusNotFound)
 		return
 	}
 	h.logger.Infow("got post by ID", "post", post)
-
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(w).Encode(post)
+	fmt.Printf("\n\n\t%#v\n", post)
+	fmt.Printf("\n\n\t%+v\n", post)
+	posts := []*models.Post{post}
+	err = handlerWrite(w, http.StatusOK, posts)
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusOK)
+	//err = json.NewEncoder(w).Encode(post)
 	if err != nil {
 		h.logger.Errorw("encoding to json post by ID", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -160,16 +179,28 @@ func (h *PostHandler) AddCommentPost(w http.ResponseWriter, r *http.Request) {
 	}
 	h.logger.Infow("received comment request", "comment", req)
 
-	post, err = h.PostRepo.AddCommentToPost(req.Comment, post.ID)
+	token := r.Header.Get("Authorization")
+	inToken := h.PostRepo.TrimToken(token)
+
+	session, err := auth.ParseToken(inToken)
+	if err != nil {
+		h.logger.Errorw("error while parsing token", "error", err)
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	post, err = h.PostRepo.AddCommentToPost(req.Comment, post.ID, session)
 	if err != nil {
 		h.logger.Errorw("adding comment to post", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusCreated)
-	err = json.NewEncoder(w).Encode(post)
+	posts := []*models.Post{post}
+	err = handlerWrite(w, http.StatusCreated, posts)
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusCreated)
+	//err = json.NewEncoder(w).Encode(post)
 	if err != nil {
 		h.logger.Errorw("encoding new post comment", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -184,15 +215,27 @@ func (h *PostHandler) DeleteCommentPost(w http.ResponseWriter, r *http.Request) 
 	postID, commentID := vars["POST_ID"], vars["COMMENT_ID"]
 	log.Printf("postid: %#v, commID: %#v", postID, commentID)
 
-	post, err := h.PostRepo.DeleteComment(commentID, postID)
+	token := r.Header.Get("Authorization")
+	inToken := h.PostRepo.TrimToken(token)
+
+	session, err := auth.ParseToken(inToken)
+	if err != nil {
+		h.logger.Errorw("error while parsing token", "error", err)
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	post, err := h.PostRepo.DeleteComment(commentID, postID, session.ID)
 	if err != nil {
 		h.logger.Errorw("deleting comment", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(w).Encode(post)
+	posts := []*models.Post{post}
+	err = handlerWrite(w, http.StatusOK, posts)
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusOK)
+	//err = json.NewEncoder(w).Encode(post)
 	if err != nil {
 		h.logger.Errorw("encoding post comment delete", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -211,7 +254,9 @@ func (h *PostHandler) UpVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inToken := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	token := r.Header.Get("Authorization")
+	inToken := h.PostRepo.TrimToken(token)
+
 	session, err := auth.ParseToken(inToken)
 	if err != nil {
 		h.logger.Errorw("error while parsing token", "error", err)
@@ -221,9 +266,11 @@ func (h *PostHandler) UpVote(w http.ResponseWriter, r *http.Request) {
 
 	h.PostRepo.UpVote(session.ID, post)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(w).Encode(post)
+	posts := []*models.Post{post}
+	err = handlerWrite(w, http.StatusOK, posts)
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusOK)
+	//err = json.NewEncoder(w).Encode(post)
 	if err != nil {
 		h.logger.Errorw("encoding post upvote", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -242,7 +289,9 @@ func (h *PostHandler) DownVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inToken := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	token := r.Header.Get("Authorization")
+	inToken := h.PostRepo.TrimToken(token)
+
 	session, err := auth.ParseToken(inToken)
 	if err != nil {
 		h.logger.Errorw("error while parsing token", "error", err)
@@ -252,9 +301,11 @@ func (h *PostHandler) DownVote(w http.ResponseWriter, r *http.Request) {
 
 	h.PostRepo.DownVote(session.ID, post)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(w).Encode(post)
+	posts := []*models.Post{post}
+	err = handlerWrite(w, http.StatusOK, posts)
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusOK)
+	//err = json.NewEncoder(w).Encode(post)
 	if err != nil {
 		h.logger.Errorw("encoding post downvote", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -273,7 +324,9 @@ func (h *PostHandler) UnVote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inToken := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	token := r.Header.Get("Authorization")
+	inToken := h.PostRepo.TrimToken(token)
+
 	session, err := auth.ParseToken(inToken)
 	if err != nil {
 		h.logger.Errorw("error while parsing token", "error", err)
@@ -283,9 +336,11 @@ func (h *PostHandler) UnVote(w http.ResponseWriter, r *http.Request) {
 
 	h.PostRepo.UnVote(session.ID, post)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(w).Encode(post)
+	posts := []*models.Post{post}
+	err = handlerWrite(w, http.StatusOK, posts)
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusOK)
+	//err = json.NewEncoder(w).Encode(post)
 	if err != nil {
 		h.logger.Errorw("encoding post unvote", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -304,7 +359,9 @@ func (h *PostHandler) DeletePostByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	inToken := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+	token := r.Header.Get("Authorization")
+	inToken := h.PostRepo.TrimToken(token)
+
 	session, err := auth.ParseToken(inToken)
 	if err != nil {
 		h.logger.Errorw("error while parsing token", "error", err)
@@ -320,10 +377,10 @@ func (h *PostHandler) DeletePostByID(w http.ResponseWriter, r *http.Request) {
 	fmt.Printf("\n\tREADY TO DELETE POST, postid: %s", post.ID)
 	h.PostRepo.DeletePost(post)
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-
-	err = json.NewEncoder(w).Encode(deleteResponse{Message: "success"})
+	err = handlerWrite(w, http.StatusOK, deleteResponse{Message: "success"})
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusOK)
+	//err = json.NewEncoder(w).Encode(deleteResponse{Message: "success"})
 	if err != nil {
 		h.logger.Errorw("encoding post delete", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -343,9 +400,10 @@ func (h *PostHandler) GetPostsUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	err = json.NewEncoder(w).Encode(posts)
+	err = handlerWrite(w, http.StatusCreated, posts)
+	//w.Header().Set("Content-Type", "application/json")
+	//w.WriteHeader(http.StatusOK)
+	//err = json.NewEncoder(w).Encode(posts)
 	if err != nil {
 		h.logger.Errorw("encoding posts user", "error", err)
 		http.Error(w, err.Error(), http.StatusInternalServerError)

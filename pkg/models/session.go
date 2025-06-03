@@ -5,8 +5,4 @@ type (
 		ID       string `json:"id"`
 		Username string `json:"username"`
 	}
-
-	SessionRepo interface {
-		Create(*Session) (*Session, error)
-	}
 )

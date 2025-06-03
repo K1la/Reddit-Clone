@@ -1,12 +1,15 @@
 package main
 
 import (
-	"github.com/gorilla/mux"
-	"go.uber.org/zap"
 	"log"
 	"net/http"
+	"redditclone/pkg/auth"
 	"redditclone/pkg/handlers"
 	"redditclone/pkg/middleware"
+
+	"github.com/gorilla/mux"
+	"github.com/joho/godotenv"
+	"go.uber.org/zap"
 )
 
 func main() {
@@ -24,11 +27,13 @@ func main() {
 		}
 	}()
 
+	_ = godotenv.Load(".env")
+	auth.Init()
+
 	r := mux.NewRouter()
 	r.PathPrefix("/static/").Handler(http.StripPrefix("/static/", http.FileServer(http.Dir("./static/"))))
 	r.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFile(w, r, "./static/html/index.html")
-		logger.Infoln("NOT INDEX METHOD /HTML/INDEX")
 	}).Methods("GET")
 
 	authHandler := handlers.NewUserHandler(logger)
@@ -55,7 +60,7 @@ func main() {
 
 	// MiddleWares
 	muxMW := middleware.AccessLog(logger, r)
-	muxMW = middleware.Panic(muxMW)
+	muxMW = middleware.Panic(logger, muxMW)
 
 	addr := ":8032"
 	logger.Infof("Starting server on %s", addr)

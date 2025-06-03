@@ -1,28 +1,43 @@
 package auth
 
 import (
+	"flag"
 	"fmt"
-	jwt "github.com/dgrijalva/jwt-go"
-	"log"
+	"os"
 	"redditclone/pkg/models"
 	"time"
+
+	jwt "github.com/golang-jwt/jwt/v5"
 )
 
-var jwtKey = []byte("secret")
+var jwtKey []byte
+
+func Init() {
+	secret := os.Getenv("JWT_SECRET")
+
+	flag.StringVar(&secret, "jwtSecret", secret, "JWT Secret")
+	flag.Parse()
+
+	if secret == "" {
+		panic("JWT Secret is empty")
+	}
+	jwtKey = []byte(secret)
+
+}
 
 type Claims struct {
 	UserID   string `json:"id"`
 	Username string `json:"username"`
-	jwt.StandardClaims
+	jwt.RegisteredClaims
 }
 
 func GenerateToken(userID, username string) (string, error) {
-	exp := time.Now().Add(time.Hour * 72).Unix()
+	exp := time.Now().Add(time.Hour * 72)
 	claims := &Claims{
 		UserID:   userID,
 		Username: username,
-		StandardClaims: jwt.StandardClaims{
-			ExpiresAt: exp,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(exp),
 		},
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -41,15 +56,12 @@ func ParseToken(inToken string) (*models.Session, error) {
 	if err != nil {
 		return nil, fmt.Errorf("invalid parse token")
 	}
-	fmt.Printf("\t\tpayload: %+v\n", token)
-	log.Printf("\t\tpayload: %+v\n", token)
 
 	payload, ok := token.Claims.(jwt.MapClaims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid claims token")
 	}
-	fmt.Printf("\t\tpayload: %+v\n", payload)
-	log.Printf("\t\tpayload: %+v\n", payload)
+
 	session := &models.Session{
 		ID:       payload["id"].(string),
 		Username: payload["username"].(string),
